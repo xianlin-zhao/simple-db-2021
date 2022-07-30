@@ -1,6 +1,9 @@
 package simpledb.storage;
 
+import simpledb.common.Type;
+
 import java.io.Serializable;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Iterator;
 
@@ -13,6 +16,10 @@ public class Tuple implements Serializable {
 
     private static final long serialVersionUID = 1L;
 
+    private TupleDesc tupleDesc;
+    private ArrayList<Field> fields;
+    private RecordId recordId;
+
     /**
      * Create a new tuple with the specified schema (type).
      *
@@ -22,6 +29,16 @@ public class Tuple implements Serializable {
      */
     public Tuple(TupleDesc td) {
         // some code goes here
+        tupleDesc = td;
+        int len = td.numFields();
+        fields = new ArrayList<>(len);
+        for (int i = 0; i < len; i++) {
+            if (td.getFieldType(i) == Type.INT_TYPE) {
+                fields.add(new IntField(0));
+            } else {
+                fields.add(new StringField("", Type.STRING_LEN));
+            }
+        }
     }
 
     /**
@@ -29,7 +46,7 @@ public class Tuple implements Serializable {
      */
     public TupleDesc getTupleDesc() {
         // some code goes here
-        return null;
+        return tupleDesc;
     }
 
     /**
@@ -38,7 +55,7 @@ public class Tuple implements Serializable {
      */
     public RecordId getRecordId() {
         // some code goes here
-        return null;
+        return recordId;
     }
 
     /**
@@ -49,6 +66,7 @@ public class Tuple implements Serializable {
      */
     public void setRecordId(RecordId rid) {
         // some code goes here
+        recordId = rid;
     }
 
     /**
@@ -61,6 +79,7 @@ public class Tuple implements Serializable {
      */
     public void setField(int i, Field f) {
         // some code goes here
+        fields.set(i, f);
     }
 
     /**
@@ -71,7 +90,7 @@ public class Tuple implements Serializable {
      */
     public Field getField(int i) {
         // some code goes here
-        return null;
+        return fields.get(i);
     }
 
     /**
@@ -84,7 +103,13 @@ public class Tuple implements Serializable {
      */
     public String toString() {
         // some code goes here
-        throw new UnsupportedOperationException("Implement this");
+        String str = "";
+        int len = fields.size();
+        str += fields.get(0).toString();
+        for (int i = 1; i < len; i++) {
+            str += "\t" + fields.get(i).toString();
+        }
+        return str;
     }
 
     /**
@@ -94,7 +119,7 @@ public class Tuple implements Serializable {
     public Iterator<Field> fields()
     {
         // some code goes here
-        return null;
+        return fields.iterator();
     }
 
     /**
@@ -103,5 +128,6 @@ public class Tuple implements Serializable {
     public void resetTupleDesc(TupleDesc td)
     {
         // some code goes here
+        tupleDesc = td;
     }
 }

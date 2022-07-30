@@ -7,3 +7,5 @@ out/
 .DS_Store
 *.zip
 dist/
+.classpath
+.project

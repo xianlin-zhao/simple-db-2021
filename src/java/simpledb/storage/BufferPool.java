@@ -11,6 +11,7 @@ import javax.xml.crypto.Data;
 import java.io.*;
 
 import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -157,6 +158,14 @@ public class BufferPool {
         throws DbException, IOException, TransactionAbortedException {
         // some code goes here
         // not necessary for lab1
+        DbFile dbFile = Database.getCatalog().getDatabaseFile(tableId);
+        List<Page> dirtyPages = dbFile.insertTuple(tid, t);
+        for (Page page : dirtyPages) {
+            page.markDirty(true, tid);
+            if (!pages.contains(page)) {
+                pages.add(page);
+            }
+        }
     }
 
     /**
@@ -176,6 +185,15 @@ public class BufferPool {
         throws DbException, IOException, TransactionAbortedException {
         // some code goes here
         // not necessary for lab1
+        HeapPageId pid = (HeapPageId) t.getRecordId().getPageId();
+        DbFile dbFile = Database.getCatalog().getDatabaseFile(pid.getTableId());
+        List<Page> dirtyPages = dbFile.deleteTuple(tid, t);
+        for (Page page : dirtyPages) {
+            page.markDirty(true, tid);
+            if (!pages.contains(page)) {
+                pages.add(page);
+            }
+        }
     }
 
     /**

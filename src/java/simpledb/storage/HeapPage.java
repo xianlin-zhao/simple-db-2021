@@ -8,6 +8,7 @@ import simpledb.transaction.TransactionId;
 
 import java.util.*;
 import java.io.*;
+import java.util.concurrent.RecursiveTask;
 
 /**
  * Each instance of HeapPage stores data for one page of HeapFiles and 
@@ -27,6 +28,9 @@ public class HeapPage implements Page {
 
     byte[] oldData;
     private final Byte oldDataLock= (byte) 0;
+
+    private boolean dirtyBit = false;
+    private TransactionId dirtyTid = null;
 
     /**
      * Create a HeapPage from a set of bytes of data read from disk.
@@ -249,6 +253,24 @@ public class HeapPage implements Page {
     public void deleteTuple(Tuple t) throws DbException {
         // some code goes here
         // not necessary for lab1
+        RecordId recordId = t.getRecordId();
+        PageId pageId = recordId.getPageId();
+        int tupleNumber = recordId.getTupleNumber();
+//        if (!pageId.equals(this.pid) || tupleNumber < 0 || tupleNumber >= numSlots) {
+//            throw new DbException("tuple is not on this page.");
+//        }
+        if (tupleNumber < 0 || tupleNumber >= numSlots) {
+            throw new DbException("tuple is not on this page.");
+        }
+        if (!isSlotUsed(tupleNumber)) {
+            throw new DbException("tuple slot is already empty.");
+        }
+        if (tuples[tupleNumber] == null || !tuples[tupleNumber].equals(t)) {
+            throw new DbException("tuple is not on this page.");
+        }
+
+        markSlotUsed(tupleNumber, false);
+        tuples[tupleNumber] = null;
     }
 
     /**
@@ -261,6 +283,21 @@ public class HeapPage implements Page {
     public void insertTuple(Tuple t) throws DbException {
         // some code goes here
         // not necessary for lab1
+        if (getNumEmptySlots() == 0) {
+            throw new DbException("the page is full.");
+        }
+        if (!this.td.equals(t.getTupleDesc())) {
+            throw new DbException("tupledesc is mismatch.");
+        }
+        for (int i = 0; i < numSlots; i++) {
+            if (!isSlotUsed(i) && tuples[i] == null) {
+                RecordId insertId = new RecordId(pid, i);
+                t.setRecordId(insertId);
+                tuples[i] = t;
+                markSlotUsed(i, true);
+                break;
+            }
+        }
     }
 
     /**
@@ -270,6 +307,8 @@ public class HeapPage implements Page {
     public void markDirty(boolean dirty, TransactionId tid) {
         // some code goes here
 	// not necessary for lab1
+        dirtyBit = dirty;
+        dirtyTid = tid;
     }
 
     /**
@@ -278,7 +317,7 @@ public class HeapPage implements Page {
     public TransactionId isDirty() {
         // some code goes here
 	// Not necessary for lab1
-        return null;      
+        return dirtyBit ? dirtyTid : null;
     }
 
     /**
@@ -310,6 +349,13 @@ public class HeapPage implements Page {
     private void markSlotUsed(int i, boolean value) {
         // some code goes here
         // not necessary for lab1
+        int byteId = i / 8;
+        int offset = i % 8;
+        if (value) {
+            header[byteId] |= (1 << offset);
+        } else {
+            header[byteId] &= ~(1 << offset);
+        }
     }
 
     /**
@@ -319,27 +365,29 @@ public class HeapPage implements Page {
     public Iterator<Tuple> iterator() {
         // some code goes here
         return new Iterator<Tuple>() {
-            private int cursor = 0;
+            private int cursor = -1;
 
             @Override
             public boolean hasNext() {
-                return cursor < getNumTuples() - getNumEmptySlots();
+                while (cursor + 1 < numSlots && !isSlotUsed(cursor + 1)) {
+                    cursor++;
+                }
+                return cursor + 1 < numSlots;
             }
 
             @Override
             public Tuple next() {
-                if (!hasNext()) {
-                    throw new NoSuchElementException();
+                if (hasNext()) {
+                    return tuples[++cursor];
+                } else {
+                    return null;
                 }
-                while (!isSlotUsed(cursor)) {
-                    cursor++;
-                }
-                return tuples[cursor++];
             }
 
             @Override
             public void remove() {
                 throw new UnsupportedOperationException();
+
             }
         };
     }

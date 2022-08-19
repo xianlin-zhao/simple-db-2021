@@ -1,5 +1,6 @@
 package simpledb.optimizer;
 
+import net.sf.antcontrib.design.Log;
 import simpledb.common.Database;
 import simpledb.ParsingException;
 import simpledb.execution.*;
@@ -130,7 +131,7 @@ public class JoinOptimizer {
             // HINT: You may need to use the variable "j" if you implemented
             // a join algorithm that's more complicated than a basic
             // nested-loops join.
-            return -1.0;
+            return cost1 + card1 * cost2 + card1 * card2;
         }
     }
 
@@ -174,9 +175,23 @@ public class JoinOptimizer {
                                                    String field2PureName, int card1, int card2, boolean t1pkey,
                                                    boolean t2pkey, Map<String, TableStats> stats,
                                                    Map<String, Integer> tableAliasToId) {
-        int card = 1;
         // some code goes here
-        return card <= 0 ? 1 : card;
+        if (joinOp == Predicate.Op.EQUALS) {
+            if (t1pkey && t2pkey) {
+                return Math.min(card1, card2);
+            } else if (t1pkey) {
+                return card2;
+            } else if (t2pkey) {
+                return card1;
+            } else {
+                return Math.max(card1, card2);
+            }
+        } else if (joinOp == Predicate.Op.NOT_EQUALS) {
+            return card1 * card2 - estimateTableJoinCardinality(Predicate.Op.EQUALS, table1Alias, table2Alias,
+                    field1PureName, field2PureName, card1, card2, t1pkey, t2pkey, stats, tableAliasToId);
+        } else {
+            return (int) (0.3 * card1 * card2);
+        }
     }
 
     /**
@@ -238,7 +253,33 @@ public class JoinOptimizer {
 
         // some code goes here
         //Replace the following
-        return joins;
+
+        PlanCache optJoin = new PlanCache();
+        int jSize = joins.size();
+        for (int i = 1; i <= jSize; i++) {
+            Set<Set<LogicalJoinNode>> subset = enumerateSubsets(joins, i);
+            for (Set<LogicalJoinNode> s : subset) {
+                double nowBestCost = Double.MAX_VALUE;
+                CostCard bestPlan = new CostCard();
+                for (LogicalJoinNode ljNode : s) {
+                    CostCard costCard = computeCostAndCardOfSubplan(
+                            stats, filterSelectivities, ljNode, s, nowBestCost, optJoin);
+                    if (costCard != null) {
+                        nowBestCost = costCard.cost;
+                        bestPlan = costCard;
+                    }
+                }
+                if (nowBestCost != Double.MAX_VALUE) {
+                    optJoin.addPlan(s, bestPlan.cost, bestPlan.card, bestPlan.plan);
+                }
+            }
+        }
+
+        List<LogicalJoinNode> optimal = optJoin.getOrder(new HashSet<>(joins));
+        if (explain) {
+            printJoins(optimal, optJoin, stats, filterSelectivities);
+        }
+        return optimal;
     }
 
     // ===================== Private Methods =================================

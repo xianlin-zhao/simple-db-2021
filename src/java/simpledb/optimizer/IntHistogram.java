@@ -6,6 +6,13 @@ import simpledb.execution.Predicate;
  */
 public class IntHistogram {
 
+    private int numBucket;
+    private int minValue;
+    private int maxValue;
+    private int[] histogram;
+    private double width;
+    private int count;
+
     /**
      * Create a new IntHistogram.
      * 
@@ -24,6 +31,13 @@ public class IntHistogram {
      */
     public IntHistogram(int buckets, int min, int max) {
     	// some code goes here
+        numBucket = buckets;
+        minValue = min;
+        maxValue = max;
+        int gap = max - min + 1;
+        width = Math.max(gap * 1.0 / buckets, 1.0);
+        histogram = new int[numBucket];
+        count = 0;
     }
 
     /**
@@ -32,6 +46,9 @@ public class IntHistogram {
      */
     public void addValue(int v) {
     	// some code goes here
+        count++;
+        int valueId = (int) ((v - minValue) / width);
+        histogram[valueId]++;
     }
 
     /**
@@ -47,6 +64,40 @@ public class IntHistogram {
     public double estimateSelectivity(Predicate.Op op, int v) {
 
     	// some code goes here
+        int valueId = (int) ((v - minValue) / width);
+        if (op == Predicate.Op.EQUALS) {
+            if (v < minValue || v > maxValue) {
+                return 0.0;
+            }
+            return (histogram[valueId] / width) / count;
+        } else if (op == Predicate.Op.NOT_EQUALS) {
+            return 1.0 - estimateSelectivity(Predicate.Op.EQUALS, v);
+        } else if (op == Predicate.Op.GREATER_THAN) {
+            if (v < minValue) {
+                return 1.0;
+            } else if (v >= maxValue) {
+                return 0.0;
+            }
+            double b_f = 1.0 * histogram[valueId] / count;
+            double b_right = width * (valueId + 1.0);
+            double b_part = (b_right - v) / width;
+            int rightSum = 0;
+            for (int i = valueId + 1; i < numBucket; i++) {
+                rightSum += histogram[i];
+            }
+            return b_f * b_part + (rightSum * 1.0 / count);
+        } else if (op == Predicate.Op.LESS_THAN) {
+            if (v > maxValue) {
+                return 1.0;
+            } else if (v <= minValue) {
+                return 0.0;
+            }
+            return 1 - estimateSelectivity(Predicate.Op.EQUALS, v) - estimateSelectivity(Predicate.Op.GREATER_THAN, v);
+        } else if (op == Predicate.Op.GREATER_THAN_OR_EQ) {
+            return estimateSelectivity(Predicate.Op.GREATER_THAN, v - 1);
+        } else if (op == Predicate.Op.LESS_THAN_OR_EQ) {
+            return estimateSelectivity(Predicate.Op.LESS_THAN, v + 1);
+        }
         return -1.0;
     }
     

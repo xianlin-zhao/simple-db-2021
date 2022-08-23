@@ -153,6 +153,7 @@ public class HeapFile implements DbFile {
                 dirtyPages.add(heapPage);
                 return dirtyPages;
             }
+            Database.getBufferPool().unsafeReleasePage(tid, pageId);
         }
         byte[] data = HeapPage.createEmptyPageData();
         BufferedOutputStream bw = new BufferedOutputStream(new FileOutputStream(file, true));

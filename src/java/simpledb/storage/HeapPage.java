@@ -308,7 +308,7 @@ public class HeapPage implements Page {
         // some code goes here
 	// not necessary for lab1
         dirtyBit = dirty;
-        dirtyTid = tid;
+        dirtyTid = dirty ? tid : null;
     }
 
     /**

@@ -10,9 +10,7 @@ import simpledb.transaction.TransactionId;
 import javax.xml.crypto.Data;
 import java.io.*;
 
-import java.util.ArrayList;
-import java.util.LinkedList;
-import java.util.List;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -39,6 +37,7 @@ public class BufferPool {
 
     private int pageNum = DEFAULT_PAGES;
     private static LinkedList<Page> pages;
+    private LockManager manager;
     /**
      * Creates a BufferPool that caches up to numPages pages.
      *
@@ -48,6 +47,7 @@ public class BufferPool {
         // some code goes here
         pageNum = numPages;
         pages = new LinkedList<>();
+        manager = new LockManager();
     }
     
     public static int getPageSize() {
@@ -79,8 +79,9 @@ public class BufferPool {
      * @param pid the ID of the requested page
      * @param perm the requested permissions on the page
      */
-    public  Page getPage(TransactionId tid, PageId pid, Permissions perm)
+    public Page getPage(TransactionId tid, PageId pid, Permissions perm)
         throws TransactionAbortedException, DbException {
+        manager.acquireLock(tid, pid, perm);
         int len = pages.size();
         for (int i = 0; i < len; i++) {
             if (pages.get(i).getId().equals(pid)) {
@@ -96,6 +97,10 @@ public class BufferPool {
         return page;
     }
 
+    public LockManager getManager() {
+        return manager;
+    }
+
     /**
      * Releases the lock on a page.
      * Calling this is very risky, and may result in wrong behavior. Think hard
@@ -108,6 +113,7 @@ public class BufferPool {
     public  void unsafeReleasePage(TransactionId tid, PageId pid) {
         // some code goes here
         // not necessary for lab1|lab2
+        manager.releaseLock(tid, pid);
     }
 
     /**
@@ -118,13 +124,14 @@ public class BufferPool {
     public void transactionComplete(TransactionId tid) {
         // some code goes here
         // not necessary for lab1|lab2
+        transactionComplete(tid, true);
     }
 
     /** Return true if the specified transaction has a lock on the specified page */
     public boolean holdsLock(TransactionId tid, PageId p) {
         // some code goes here
         // not necessary for lab1|lab2
-        return false;
+        return manager.holdLock(tid, p);
     }
 
     /**
@@ -137,6 +144,21 @@ public class BufferPool {
     public void transactionComplete(TransactionId tid, boolean commit) {
         // some code goes here
         // not necessary for lab1|lab2
+        HashSet<LockManager.PageLock> locks = manager.getTransLocks(tid);
+        if (commit) {
+            try {
+                flushPages(tid);
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        } else {
+            for (LockManager.PageLock lock : locks) {
+                discardPage(lock.pid);
+            }
+        }
+        for (LockManager.PageLock lock : locks) {
+            unsafeReleasePage(tid, lock.pid);
+        }
     }
 
     /**
@@ -246,6 +268,7 @@ public class BufferPool {
                     DbFile dbFile = Database.getCatalog().getDatabaseFile(page.getId().getTableId());
                     dbFile.writePage(page);
                     page.markDirty(false, tid);
+//                    pages.remove(i);
                 }
                 break;
             }
@@ -257,6 +280,12 @@ public class BufferPool {
     public synchronized  void flushPages(TransactionId tid) throws IOException {
         // some code goes here
         // not necessary for lab1|lab2
+        HashSet<LockManager.PageLock> locks = manager.getTransLocks(tid);
+        for (LockManager.PageLock lock : locks) {
+            if (lock.perm == Permissions.READ_WRITE) {
+                flushPage(lock.pid);
+            }
+        }
     }
 
     /**
@@ -270,14 +299,16 @@ public class BufferPool {
         if (size <= 0) {
             return;
         }
-        Page page = pages.get(size - 1);
-        PageId pid = page.getId();
-        try {
-            flushPage(pid);
-        } catch (IOException e) {
-            throw new DbException("IO Exception when flushing page.");
+        int idx = size - 1;
+        while (idx >= 0) {
+            Page page = pages.get(idx);
+            if (page.isDirty() == null) {
+                pages.remove(idx);
+                return;
+            }
+            idx--;
         }
-        pages.remove(size - 1);
+        throw new DbException("all pages in the buffer pool are dirty.");
     }
 
 }

@@ -82,19 +82,22 @@ public class BufferPool {
     public Page getPage(TransactionId tid, PageId pid, Permissions perm)
         throws TransactionAbortedException, DbException {
         manager.acquireLock(tid, pid, perm);
-        int len = pages.size();
-        for (int i = 0; i < len; i++) {
-            if (pages.get(i).getId().equals(pid)) {
-                return pages.get(i);
+        synchronized (this) {
+            int len = pages.size();
+            for (int i = 0; i < len; i++) {
+                if (pages.get(i).getId().equals(pid)) {
+                    return pages.get(i);
+                }
             }
+            DbFile dbFile = Database.getCatalog().getDatabaseFile(pid.getTableId());
+            Page page = dbFile.readPage(pid);
+            if (len >= pageNum) {
+                evictPage();
+            }
+            pages.addFirst(page);
+            return page;
         }
-        DbFile dbFile = Database.getCatalog().getDatabaseFile(pid.getTableId());
-        Page page = dbFile.readPage(pid);
-        if (len >= pageNum) {
-            evictPage();
-        }
-        pages.addFirst(page);
-        return page;
+
     }
 
     public LockManager getManager() {
@@ -184,9 +187,12 @@ public class BufferPool {
         List<Page> dirtyPages = dbFile.insertTuple(tid, t);
         for (Page page : dirtyPages) {
             page.markDirty(true, tid);
-            if (!pages.contains(page)) {
-                pages.add(page);
+            synchronized (this) {
+                if (!pages.contains(page)) {
+                    pages.add(page);
+                }
             }
+
         }
     }
 
@@ -207,14 +213,17 @@ public class BufferPool {
         throws DbException, IOException, TransactionAbortedException {
         // some code goes here
         // not necessary for lab1
-        HeapPageId pid = (HeapPageId) t.getRecordId().getPageId();
+        PageId pid = t.getRecordId().getPageId();
         DbFile dbFile = Database.getCatalog().getDatabaseFile(pid.getTableId());
         List<Page> dirtyPages = dbFile.deleteTuple(tid, t);
         for (Page page : dirtyPages) {
             page.markDirty(true, tid);
-            if (!pages.contains(page)) {
-                pages.add(page);
+            synchronized (this) {
+                if (!pages.contains(page)) {
+                    pages.add(page);
+                }
             }
+
         }
     }
 

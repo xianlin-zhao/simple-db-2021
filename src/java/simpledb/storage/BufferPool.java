@@ -150,7 +150,19 @@ public class BufferPool {
         HashSet<LockManager.PageLock> locks = manager.getTransLocks(tid);
         if (commit) {
             try {
-                flushPages(tid);
+                for (LockManager.PageLock lock : locks) {
+                    if (lock.perm == Permissions.READ_WRITE) {
+                        flushPage(lock.pid);
+                        // use current page contents as the before-image
+                        // for the next transaction that modifies this page.
+                        for (int i = 0; i < pages.size(); i++) {
+                            Page page = pages.get(i);
+                            if (page.getId().equals(lock.pid)) {
+                                page.setBeforeImage();
+                            }
+                        }
+                    }
+                }
             } catch (IOException e) {
                 e.printStackTrace();
             }
@@ -275,9 +287,12 @@ public class BufferPool {
                 TransactionId tid = page.isDirty();
                 if (tid != null) {
                     DbFile dbFile = Database.getCatalog().getDatabaseFile(page.getId().getTableId());
+                    // append an update record to the log, with
+                    // a before-image and after-image.
+                    Database.getLogFile().logWrite(tid, page.getBeforeImage(), page);
+                    Database.getLogFile().force();
                     dbFile.writePage(page);
                     page.markDirty(false, tid);
-//                    pages.remove(i);
                 }
                 break;
             }

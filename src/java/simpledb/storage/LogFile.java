@@ -460,6 +460,42 @@ public class LogFile {
             synchronized(this) {
                 preAppend();
                 // some code goes here
+                HashSet<PageId> pidSet = new HashSet<>();
+                Long cur = tidToFirstLogRecord.get(tid.getId());
+                raf.seek(cur);
+                while (true) {
+                    try {
+                        int cpType = raf.readInt();
+                        long cpTid = raf.readLong();
+                        switch (cpType) {
+                            case UPDATE_RECORD:
+                                Page before = readPageData(raf);
+                                Page after = readPageData(raf);
+                                PageId pid = before.getId();
+                                if (tid.getId() == cpTid && !pidSet.contains(pid)) {
+                                    DbFile dbFile = Database.getCatalog().getDatabaseFile(pid.getTableId());
+                                    dbFile.writePage(before);
+                                    Database.getBufferPool().discardPage(pid);
+                                    pidSet.add(pid);
+                                }
+                                raf.readLong();
+                                break;
+                            case CHECKPOINT_RECORD:
+                                int numTransactions = raf.readInt();
+                                while (numTransactions-- > 0) {
+                                    raf.readLong();
+                                    raf.readLong();
+                                }
+                                raf.readLong();
+                                break;
+                            default:
+                                raf.readLong();
+                                break;
+                        }
+                    } catch (EOFException e) {
+                        break;
+                    }
+                }
             }
         }
     }
@@ -487,6 +523,65 @@ public class LogFile {
             synchronized (this) {
                 recoveryUndecided = false;
                 // some code goes here
+                HashSet<Long> commitTrans = new HashSet<>();
+                HashSet<Long> bothTrans = new HashSet<>();
+                HashMap<Long, LinkedList<Page>> beforeImages = new HashMap<>();
+                HashMap<Long, LinkedList<Page>> afterImages = new HashMap<>();
+
+                raf.seek(0);
+                Long checkPoint = raf.readLong();
+                while (true) {
+                    try {
+                        int cpType = raf.readInt();
+                        long cpTid = raf.readLong();
+                        switch (cpType) {
+                            case CHECKPOINT_RECORD:
+                                int numTransactions = raf.readInt();
+                                while (numTransactions-- > 0) {
+                                    raf.readLong();
+                                    raf.readLong();
+                                }
+                                raf.readLong();
+                                break;
+                            case COMMIT_RECORD:
+                                commitTrans.add(cpTid);
+                                raf.readLong();
+                                break;
+                            case UPDATE_RECORD:
+                                Page before = readPageData(raf);
+                                Page after = readPageData(raf);
+                                bothTrans.add(cpTid);
+
+                                LinkedList<Page> bef = beforeImages.containsKey(cpTid) ?
+                                        beforeImages.get(cpTid) : new LinkedList<>();
+                                bef.add(before);
+                                beforeImages.put(cpTid, bef);
+
+                                LinkedList<Page> aft = afterImages.containsKey(cpTid) ?
+                                        afterImages.get(cpTid) : new LinkedList<>();
+                                aft.add(after);
+                                afterImages.put(cpTid, aft);
+
+                                raf.readLong();
+                                break;
+                            default:
+                                raf.readLong();
+                                break;
+                        }
+                    } catch (EOFException e) {
+                        break;
+                    }
+                }
+
+                for (Long tid : bothTrans) {
+                    LinkedList<Page> pages = commitTrans.contains(tid) ?
+                            afterImages.get(tid) : beforeImages.get(tid);
+                    for (Page p : pages) {
+                        PageId pid = p.getId();
+                        DbFile dbFile = Database.getCatalog().getDatabaseFile(pid.getTableId());
+                        dbFile.writePage(p);
+                    }
+                }
             }
          }
     }
